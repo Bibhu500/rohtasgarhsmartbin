@@ -12,12 +12,10 @@ import {
   RefreshCw,
   Clock,
   AlertTriangle,
-  Play,
-  Pause,
-  Database,
+  LogOut,
   Cpu,
-  ShieldAlert,
-  HelpCircle,
+  ShieldCheck,
+  CheckCircle,
 } from "lucide-react";
 import { BinReading, BinApiResponse } from "@/types/bin";
 import MetricCard from "@/components/MetricCard";
@@ -25,84 +23,114 @@ import FillLevelBar from "@/components/FillLevelBar";
 import MapWidget from "@/components/MapWidget";
 import HistoryLog from "@/components/HistoryLog";
 import SimulatorModal from "@/components/SimulatorModal";
+import LoginForm from "@/components/LoginForm";
 
-export default function DashboardPage() {
-  const [selectedBinId, setSelectedBinId] = useState<string>("BIN-001");
-  const [availableBins, setAvailableBins] = useState<string[]>(["BIN-001", "BIN-002"]);
+interface BinTab {
+  id: string;
+  name: string;
+  location: string;
+}
+
+const DUSTBINS: BinTab[] = [
+  { id: "BIN-001", name: "Dustbin 1", location: "Main Campus Gate" },
+  { id: "BIN-002", name: "Dustbin 2", location: "Central Cafeteria" },
+  { id: "BIN-003", name: "Dustbin 3", location: "Academic Block B" },
+  { id: "BIN-004", name: "Dustbin 4", location: "East Parking Bay" },
+];
+
+export default function SmartDustbinApp() {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<string>("admin");
+
+  // Dashboard state (Dustbin 1 active by default)
+  const [activeBinId, setActiveBinId] = useState<string>("BIN-001");
   const [latestReading, setLatestReading] = useState<BinReading | null>(null);
   const [history, setHistory] = useState<BinReading[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
-  const [isPollingActive, setIsPollingActive] = useState<boolean>(true);
   const [countdown, setCountdown] = useState<number>(5);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
-  const [isMockData, setIsMockData] = useState<boolean>(false);
-  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
-  // Fetch bin data from GET /api/bin-data
-  const fetchData = useCallback(
-    async (isManual = false) => {
-      if (isManual) {
-        setRefreshing(true);
+  // Check auth session on load
+  const checkAuth = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/me", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated) {
+          setIsAuthenticated(true);
+          setCurrentUser(data.user?.username || "admin");
+          return;
+        }
       }
+      setIsAuthenticated(false);
+    } catch {
+      setIsAuthenticated(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  // Handle Logout
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      setIsAuthenticated(false);
+    }
+  };
+
+  // Fetch telemetry for currently selected dustbin
+  const fetchBinTelemetry = useCallback(
+    async (isManual = false) => {
+      if (isManual) setRefreshing(true);
       try {
         setError(null);
         const url = `/api/bin-data?bin_id=${encodeURIComponent(
-          selectedBinId
+          activeBinId
         )}&history=true&limit=50`;
 
         const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error(`Server returned status ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 
         const data: BinApiResponse = await res.json();
-
         if (data.success) {
-          if (data.latest) {
-            setLatestReading(data.latest);
-          }
-          if (data.history) {
-            setHistory(data.history);
-          }
-          if (data.bins && data.bins.length > 0) {
-            setAvailableBins((prev) => {
-              const merged = Array.from(new Set([...prev, ...data.bins!]));
-              return merged;
-            });
-          }
-          setIsMockData(Boolean(data.isMockData));
-          setWarningMessage(data.message || null);
-          setLastFetchTime(new Date());
+          if (data.latest) setLatestReading(data.latest);
+          if (data.history) setHistory(data.history);
           setCountdown(5);
         } else {
-          setError(data.message || "Failed to load telemetry data");
+          setError(data.message || "Failed to retrieve telemetry");
         }
       } catch (err: any) {
-        setError(err.message || "Network error fetching bin data");
+        setError(err.message || "Network error fetching sensor data");
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [selectedBinId]
+    [activeBinId]
   );
 
-  // Initial load and on bin change
+  // Re-fetch whenever selected tab changes
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (isAuthenticated) {
+      setLoading(true);
+      fetchBinTelemetry();
+    }
+  }, [isAuthenticated, activeBinId, fetchBinTelemetry]);
 
-  // 5-second Polling interval + Countdown timer
+  // 5-second polling timer
   useEffect(() => {
-    if (!isPollingActive) return;
+    if (!isAuthenticated) return;
 
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          fetchData();
+          fetchBinTelemetry();
           return 5;
         }
         return prev - 1;
@@ -110,23 +138,41 @@ export default function DashboardPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isPollingActive, fetchData]);
+  }, [isAuthenticated, fetchBinTelemetry]);
 
-  // Formatter for relative or absolute timestamp
+  // Format relative timestamp
   const formatTimeAgo = (dateInput: string | Date | undefined) => {
-    if (!dateInput) return "No telemetry yet";
+    if (!dateInput) return "No data";
     const date = new Date(dateInput);
     if (isNaN(date.getTime())) return "Unknown";
-
-    const secondsAgo = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (secondsAgo < 5) return "Just now";
-    if (secondsAgo < 60) return `${secondsAgo}s ago`;
-    const minutesAgo = Math.floor(secondsAgo / 60);
-    if (minutesAgo < 60) return `${minutesAgo}m ago`;
+    const sec = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (sec < 5) return "Just now";
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // Status mapping logic
+  // Auth checking loading state
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-slate-500 text-sm">
+          <RefreshCw className="w-5 h-5 animate-spin text-emerald-600" />
+          <span>Verifying secure session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If not logged in, render the clean landing / login page
+  if (!isAuthenticated) {
+    return <LoginForm onSuccess={() => setIsAuthenticated(true)} />;
+  }
+
+  // Active Dustbin Tab Metadata
+  const currentBin = DUSTBINS.find((b) => b.id === activeBinId) || DUSTBINS[0];
+
   const isHighTemp = (latestReading?.temperature ?? 0) > 45;
   const isTilted = latestReading?.tilt === "TILTED";
   const isFull = (latestReading?.fill ?? 0) >= 80;
@@ -134,193 +180,194 @@ export default function DashboardPage() {
   const isWifiOffline = latestReading?.wifi === "OFFLINE";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Brand & Live Pill */}
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+          {/* Brand */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-950">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-xs">
               <Trash2 className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-white">
+                <span className="text-base font-bold text-slate-900">
                   SmartDustbin
-                </h1>
-                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  ESP32 IoT Active
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                  Live
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
-                Automated Municipal Waste & Telemetry Center
+              <p className="text-[11px] text-slate-500 hidden sm:block">
+                ESP32 IoT Municipal Sanitation
               </p>
             </div>
           </div>
 
-          {/* Controls: Bin Selector, Polling Controls, Simulator Button */}
+          {/* Right Header Actions: User, Refresh, Simulator, Logout */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Bin Selector Dropdown */}
-            <div className="relative">
-              <select
-                value={selectedBinId}
-                onChange={(e) => setSelectedBinId(e.target.value)}
-                className="appearance-none bg-slate-900 hover:bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200 pl-3 pr-8 py-2 rounded-xl focus:outline-none focus:border-emerald-500 cursor-pointer transition-colors"
-              >
-                {availableBins.map((bin) => (
-                  <option key={bin} value={bin}>
-                    {bin}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 text-xs">
-                ▼
-              </div>
-            </div>
-
-            {/* Polling Interval & Manual Refresh */}
-            <div className="hidden md:flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-400">
-              <button
-                onClick={() => setIsPollingActive(!isPollingActive)}
-                className="hover:text-white transition-colors"
-                title={isPollingActive ? "Pause polling" : "Resume polling"}
-              >
-                {isPollingActive ? (
-                  <Pause className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <Play className="w-3.5 h-3.5 text-amber-400" />
-                )}
-              </button>
-              <span className="font-mono text-[11px] text-slate-300">
-                {isPollingActive ? `${countdown}s` : "Paused"}
-              </span>
+            {/* 5s auto-refresh countdown indicator */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-mono">
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-emerald-600" : "text-slate-400"}`}
+              />
+              <span>{countdown}s</span>
             </div>
 
             <button
-              onClick={() => fetchData(true)}
+              type="button"
+              onClick={() => fetchBinTelemetry(true)}
               disabled={refreshing}
-              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition-all disabled:opacity-50"
-              title="Refresh Telemetry Now"
+              className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+              title="Refresh telemetry"
             >
-              <RefreshCw
-                className={`w-4 h-4 ${refreshing ? "animate-spin text-emerald-400" : ""}`}
-              />
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-emerald-600" : ""}`} />
             </button>
 
-            {/* ESP32 Simulator Trigger */}
+            {/* ESP32 Simulator trigger */}
             <button
+              type="button"
               onClick={() => setIsSimulatorOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md shadow-emerald-950 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold transition-colors"
             >
-              <Cpu className="w-4 h-4" />
-              <span className="hidden sm:inline">Simulate ESP32</span>
+              <Cpu className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Simulate Packet</span>
               <span className="sm:hidden">Sim</span>
+            </button>
+
+            {/* Logout Button */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-xs font-semibold transition-colors"
+              title="Sign out of dashboard"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Environment / MongoDB Connection Alert if using local mock store */}
-        {isMockData && (
-          <div className="rounded-2xl bg-sky-950/30 border border-sky-500/30 p-4 text-xs text-sky-200 flex items-start sm:items-center justify-between gap-3 backdrop-blur-sm">
-            <div className="flex items-center gap-2.5">
-              <Database className="w-5 h-5 text-sky-400 shrink-0" />
-              <div>
-                <span className="font-bold text-sky-300">
-                  Preview Mode Active:
-                </span>{" "}
-                Connect your real MongoDB Atlas cluster by configuring{" "}
-                <code className="bg-sky-900/60 px-1.5 py-0.5 rounded font-mono text-white">
-                  MONGODB_URI
-                </code>{" "}
-                in <code className="bg-sky-900/60 px-1.5 py-0.5 rounded font-mono text-white">.env.local</code>. Live testing and ESP32 telemetry are currently stored in fast memory.
-              </div>
-            </div>
-            <button
-              onClick={() => setIsSimulatorOpen(true)}
-              className="shrink-0 px-2.5 py-1 rounded-lg bg-sky-600/30 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 text-[11px] font-semibold transition-colors"
-            >
-              Test Sensor Packet
-            </button>
+      {/* Dustbin Selection Tabs (Dustbin 1, 2, 3, 4) */}
+      <div className="bg-white border-b border-slate-200 sticky top-16 z-20 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center overflow-x-auto no-scrollbar gap-2 py-2.5">
+            {DUSTBINS.map((bin, index) => {
+              const isActive = activeBinId === bin.id;
+              return (
+                <button
+                  key={bin.id}
+                  onClick={() => setActiveBinId(bin.id)}
+                  className={`shrink-0 flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                    isActive
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                      : "bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200/90"
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black ${
+                      isActive ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {index + 1}
+                  </div>
+                  <div className="text-left">
+                    <span className="block leading-tight">{bin.name}</span>
+                    <span
+                      className={`block text-[10px] font-normal leading-tight ${
+                        isActive ? "text-emerald-100" : "text-slate-400"
+                      }`}
+                    >
+                      {bin.location}
+                    </span>
+                  </div>
+                  {index === 0 && (
+                    <span
+                      className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold ${
+                        isActive
+                          ? "bg-emerald-700 text-white"
+                          : "bg-emerald-100 text-emerald-800"
+                      }`}
+                    >
+                      Active ESP32
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* Global Error Banner */}
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Error Alert */}
         {error && (
-          <div className="rounded-2xl bg-rose-950/40 border border-rose-500/50 p-4 text-xs text-rose-200 flex items-center justify-between gap-3">
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
             <button
-              onClick={() => fetchData(true)}
-              className="px-3 py-1 rounded-lg bg-rose-900/80 hover:bg-rose-800 text-white font-semibold text-xs transition-colors"
+              onClick={() => fetchBinTelemetry(true)}
+              className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-semibold text-xs hover:bg-rose-700 transition-colors"
             >
               Retry
             </button>
           </div>
         )}
 
-        {/* Loading Skeleton */}
+        {/* Tab Header Sub-bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-900">{currentBin.name}</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-500 font-mono">{currentBin.id}</span>
+            <span className="text-slate-300">•</span>
+            <span className="flex items-center gap-1 text-slate-500">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              Updated {formatTimeAgo(latestReading?.createdAt)}
+            </span>
+          </div>
+
+          <div>
+            {isFull || isTilted || isHighTemp || isWifiOffline ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                Alert Triggered
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                Normal Condition
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Loading State */}
         {loading && !latestReading ? (
-          <div className="space-y-6 animate-pulse">
-            <div className="h-44 bg-slate-900/80 rounded-3xl border border-slate-800" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="space-y-4 animate-pulse">
+            <div className="h-36 bg-white rounded-2xl border border-slate-200" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className="h-32 bg-slate-900/80 rounded-2xl border border-slate-800"
-                />
+                <div key={i} className="h-28 bg-white rounded-xl border border-slate-200" />
               ))}
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="h-64 bg-slate-900/80 rounded-3xl border border-slate-800" />
-              <div className="h-64 bg-slate-900/80 rounded-3xl border border-slate-800" />
-            </div>
+            <div className="h-64 bg-white rounded-2xl border border-slate-200" />
           </div>
         ) : (
           <>
-            {/* Status Warning Pill Header */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span className="text-slate-200 font-semibold">Monitoring:</span>
-                <span className="font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800 text-emerald-400 font-bold">
-                  {latestReading?.bin_id || selectedBinId}
-                </span>
-                <span>•</span>
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  Last reported:{" "}
-                  <span className="text-slate-200 font-medium">
-                    {formatTimeAgo(latestReading?.createdAt)}
-                  </span>
-                </span>
-              </div>
+            {/* 1. Hero Fill Level Bar */}
+            <FillLevelBar
+              fill={latestReading?.fill ?? 0}
+              binName={currentBin.name}
+            />
 
-              {/* Aggregated System Health Tag */}
-              <div className="flex items-center gap-2">
-                {isFull || isTilted || isHighTemp || isWifiOffline ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
-                    <ShieldAlert className="w-4 h-4" />
-                    Action Required
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    All Systems Normal
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* 1. HERO COMPONENT: Fill Level Bar */}
-            <FillLevelBar fill={latestReading?.fill ?? 0} />
-
-            {/* 2. 5 CORE SENSOR METRIC CARDS */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {/* 2. 5 IoT Telemetry Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
               {/* Moisture */}
               <MetricCard
                 title="Moisture"
@@ -329,15 +376,11 @@ export default function DashboardPage() {
                 subtitle={
                   (latestReading?.moisture ?? 0) > 70
                     ? "Wet organic waste"
-                    : "Normal dryness"
+                    : "Dry waste"
                 }
                 icon={Droplets}
-                status={
-                  (latestReading?.moisture ?? 0) > 70 ? "warning" : "ok"
-                }
-                badgeText={
-                  (latestReading?.moisture ?? 0) > 70 ? "HUMID" : "DRY"
-                }
+                status={(latestReading?.moisture ?? 0) > 70 ? "warning" : "ok"}
+                badgeText={(latestReading?.moisture ?? 0) > 70 ? "HUMID" : "DRY"}
               />
 
               {/* Temperature */}
@@ -346,9 +389,7 @@ export default function DashboardPage() {
                 value={latestReading?.temperature ?? 0}
                 unit="°C"
                 subtitle={
-                  isHighTemp
-                    ? "Extreme heat / Fire hazard!"
-                    : "Normal ambient"
+                  isHighTemp ? "High heat alert!" : "Normal ambient"
                 }
                 icon={Thermometer}
                 status={isHighTemp ? "danger" : "ok"}
@@ -360,19 +401,19 @@ export default function DashboardPage() {
                 title="Tilt Status"
                 value={latestReading?.tilt || "NORMAL"}
                 subtitle={
-                  isTilted ? "Bin knocked over / Tilted!" : "Upright & stable"
+                  isTilted ? "Tilted / Knocked over!" : "Upright"
                 }
                 icon={Compass}
                 status={isTilted ? "danger" : "ok"}
-                badgeText={isTilted ? "TILT ALERT" : "OK"}
+                badgeText={isTilted ? "TILTED" : "LEVEL"}
               />
 
               {/* Lid */}
               <MetricCard
-                title="Lid State"
+                title="Lid Sensor"
                 value={latestReading?.lid || "CLOSED"}
                 subtitle={
-                  isLidOpen ? "Lid left open to air" : "Closed & sealed"
+                  isLidOpen ? "Lid open to air" : "Closed tightly"
                 }
                 icon={Layers}
                 status={isLidOpen ? "warning" : "ok"}
@@ -381,10 +422,10 @@ export default function DashboardPage() {
 
               {/* WiFi Status */}
               <MetricCard
-                title="ESP32 WiFi"
+                title="WiFi Link"
                 value={latestReading?.wifi || "ONLINE"}
                 subtitle={
-                  isWifiOffline ? "Disconnected from router" : "Connected & sync"
+                  isWifiOffline ? "Signal lost" : "Connected"
                 }
                 icon={isWifiOffline ? WifiOff : Wifi}
                 status={isWifiOffline ? "danger" : "ok"}
@@ -392,115 +433,97 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* 3. MIDDLE SECTION: Map Widget & Diagnostics Summary */}
+            {/* 3. Map & Device Details Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Map Widget (2 cols on large screen) */}
               <div className="lg:col-span-2">
                 <MapWidget
                   latitude={latestReading?.latitude ?? 28.6139}
                   longitude={latestReading?.longitude ?? 77.2090}
-                  binId={latestReading?.bin_id || selectedBinId}
+                  binId={currentBin.id}
+                  binName={currentBin.name}
                 />
               </div>
 
-              {/* Hardware & Collection Information Panel */}
-              <div className="rounded-3xl bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 flex flex-col justify-between shadow-xl">
+              {/* Device Quick Info Card */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm flex flex-col justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold tracking-wider uppercase text-slate-400 flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-emerald-400" />
-                    Device Diagnostics
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    Device Details
                   </h3>
-
-                  <div className="mt-4 space-y-3 text-xs">
-                    <div className="flex justify-between py-2 border-b border-slate-800/80">
-                      <span className="text-slate-400">Device ID</span>
-                      <span className="font-mono font-semibold text-white">
-                        ESP32-{latestReading?.bin_id || selectedBinId}
-                      </span>
+                  <div className="mt-4 space-y-2.5 text-xs">
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">Unit Name</span>
+                      <span className="font-semibold text-slate-800">{currentBin.name}</span>
                     </div>
-
-                    <div className="flex justify-between py-2 border-b border-slate-800/80">
-                      <span className="text-slate-400">Firmware Protocol</span>
-                      <span className="font-mono text-emerald-400">
-                        HTTP/1.1 REST JSON
-                      </span>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">Hardware ID</span>
+                      <span className="font-mono text-slate-800">{currentBin.id}</span>
                     </div>
-
-                    <div className="flex justify-between py-2 border-b border-slate-800/80">
-                      <span className="text-slate-400">Database Storage</span>
-                      <span className="font-mono text-slate-300">
-                        {isMockData ? "In-Memory Buffer" : "MongoDB Atlas"}
-                      </span>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">Location Tag</span>
+                      <span className="text-slate-800">{currentBin.location}</span>
                     </div>
-
-                    <div className="flex justify-between py-2 border-b border-slate-800/80">
-                      <span className="text-slate-400">Timestamp</span>
-                      <span className="font-mono text-slate-300">
-                        {latestReading?.createdAt
-                          ? new Date(latestReading.createdAt).toLocaleString()
-                          : "N/A"}
-                      </span>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">Telemetry Ingestion</span>
+                      <span className="font-mono text-emerald-700">REST POST /api/bin-data</span>
                     </div>
-
-                    <div className="flex justify-between py-2">
-                      <span className="text-slate-400">Collection Priority</span>
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-500">Pickup Urgency</span>
                       <span
                         className={`font-bold ${
                           isFull
-                            ? "text-rose-400"
+                            ? "text-rose-700"
                             : isTilted
-                            ? "text-amber-400"
-                            : "text-emerald-400"
+                            ? "text-amber-700"
+                            : "text-emerald-700"
                         }`}
                       >
-                        {isFull
-                          ? "URGENT (Full)"
-                          : isTilted
-                          ? "INSPECT (Tilted)"
-                          : "LOW (Normal)"}
+                        {isFull ? "HIGH (Full)" : isTilted ? "CHECK (Tilted)" : "NORMAL"}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
                   <span className="text-[11px] text-slate-400">
-                    Live Polling: every 5s
+                    Polling interval: 5 seconds
                   </span>
                   <button
+                    type="button"
                     onClick={() => setIsSimulatorOpen(true)}
-                    className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
+                    className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
                   >
-                    Open Simulator &rarr;
+                    Simulate &rarr;
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* 4. HISTORICAL READINGS LOG */}
-            <HistoryLog history={history} />
+            {/* 4. Recent Telemetry Table */}
+            <HistoryLog
+              history={history}
+              binName={currentBin.name}
+            />
           </>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-slate-950/60 py-6 mt-12 text-center text-xs text-slate-400">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© SmartDustbin IoT • Real-time ESP32 Municipal Waste Monitoring</p>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span className="font-mono text-[11px]">POST /api/bin-data</span>
-            <span>•</span>
-            <span className="font-mono text-[11px]">GET /api/bin-data</span>
-          </div>
+      {/* Minimal Footer */}
+      <footer className="border-t border-slate-200 bg-white py-4 mt-8 text-center text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>SmartDustbin IoT Portal • Logged in as <strong>{currentUser}</strong></span>
+          <span className="text-[11px] text-slate-400">Next.js 14+ • MongoDB Atlas • ESP32</span>
         </div>
       </footer>
 
-      {/* ESP32 Simulator Modal */}
+      {/* Simulator Modal */}
       <SimulatorModal
         isOpen={isSimulatorOpen}
         onClose={() => setIsSimulatorOpen(false)}
-        onDataSent={() => fetchData(true)}
-        currentBinId={selectedBinId}
+        onDataSent={() => fetchBinTelemetry(true)}
+        currentBinId={activeBinId}
+        binName={currentBin.name}
       />
     </div>
   );

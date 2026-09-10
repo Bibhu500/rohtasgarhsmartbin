@@ -7,8 +7,6 @@ const options = {
   serverSelectionTimeoutMS: 5000,
 };
 
-let clientPromise: Promise<MongoClient> | null = null;
-
 declare global {
   // eslint-disable-next-line no-var
   var _mongoClientPromise: Promise<MongoClient> | undefined;
@@ -18,30 +16,23 @@ export function isMongoConfigured(): boolean {
   return Boolean(uri && uri.trim().length > 0);
 }
 
+/**
+ * Cached global MongoDB client promise.
+ * Safe for Next.js serverless functions on Vercel: reuses the client connection
+ * across warm lambda invocations and avoids exhausting MongoDB connection pools.
+ */
 export function getMongoClientPromise(): Promise<MongoClient> {
   if (!uri) {
     throw new Error(
-      "Please define the MONGODB_URI environment variable inside .env.local"
+      "Please define the MONGODB_URI environment variable inside .env / .env.local"
     );
   }
 
-  if (process.env.NODE_ENV === "development") {
-    // In development mode, use a global variable so that the value
-    // is preserved across module reloads caused by HMR (Hot Module Replacement).
-    if (!global._mongoClientPromise) {
-      const client = new MongoClient(uri, options);
-      global._mongoClientPromise = client.connect();
-    }
-    return global._mongoClientPromise;
-  } else {
-    // In production mode, it's best to not use a global variable.
-    // Cached at the module scope for serverless reuse across invocations.
-    if (!clientPromise) {
-      const client = new MongoClient(uri, options);
-      clientPromise = client.connect();
-    }
-    return clientPromise;
+  if (!global._mongoClientPromise) {
+    const client = new MongoClient(uri, options);
+    global._mongoClientPromise = client.connect();
   }
+  return global._mongoClientPromise;
 }
 
 export async function getDatabase(dbName?: string): Promise<Db> {

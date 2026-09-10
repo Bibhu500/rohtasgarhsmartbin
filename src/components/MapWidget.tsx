@@ -7,12 +7,12 @@ interface MapWidgetProps {
   latitude: number;
   longitude: number;
   binId: string;
+  binName?: string;
 }
 
-export default function MapWidget({ latitude, longitude, binId }: MapWidgetProps) {
+export default function MapWidget({ latitude, longitude, binId, binName = "Dustbin 1" }: MapWidgetProps) {
   const [copied, setCopied] = useState(false);
 
-  // Safe fallback coordinates (e.g. 28.6139, 77.2090)
   const lat = isNaN(latitude) ? 28.6139 : latitude;
   const lng = isNaN(longitude) ? 77.2090 : longitude;
 
@@ -26,18 +26,18 @@ export default function MapWidget({ latitude, longitude, binId }: MapWidgetProps
   const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.006}%2C${lat - 0.004}%2C${lng + 0.006}%2C${lat + 0.004}&layer=mapnik&marker=${lat}%2C${lng}`;
 
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 shadow-xl flex flex-col justify-between">
+    <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm flex flex-col justify-between">
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-              <MapPin className="w-5 h-5" />
+            <div className="p-2 rounded-xl bg-slate-100 text-slate-700 border border-slate-200">
+              <MapPin className="w-5 h-5 text-emerald-600" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold tracking-wider uppercase text-slate-400">
-                Geolocation & GPS
+              <h3 className="text-sm font-bold text-slate-900">
+                GPS Location & Map
               </h3>
-              <p className="text-xs text-slate-400">Bin Location: {binId}</p>
+              <p className="text-xs text-slate-500">{binName} ({binId})</p>
             </div>
           </div>
 
@@ -45,13 +45,12 @@ export default function MapWidget({ latitude, longitude, binId }: MapWidgetProps
             <button
               onClick={handleCopy}
               type="button"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors border border-slate-700"
-              title="Copy GPS coordinates"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 transition-colors border border-slate-200"
             >
               {copied ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400">Copied</span>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700">Copied</span>
                 </>
               ) : (
                 <>
@@ -65,38 +64,38 @@ export default function MapWidget({ latitude, longitude, binId }: MapWidgetProps
               href={googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white transition-colors shadow-md shadow-indigo-950"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white transition-colors shadow-sm"
             >
               <Navigation className="w-3.5 h-3.5" />
               <span>Route</span>
-              <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
+              <ExternalLink className="w-3 h-3 ml-0.5" />
             </a>
           </div>
         </div>
 
-        {/* Coordinates Display Badges */}
+        {/* Coordinates Badges */}
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
-            <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase block">
+          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">
               Latitude
             </span>
-            <span className="text-sm font-mono font-bold text-indigo-300">
+            <span className="text-xs sm:text-sm font-mono font-bold text-slate-800">
               {lat.toFixed(6)}° N
             </span>
           </div>
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800">
-            <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase block">
+          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">
               Longitude
             </span>
-            <span className="text-sm font-mono font-bold text-indigo-300">
+            <span className="text-xs sm:text-sm font-mono font-bold text-slate-800">
               {lng.toFixed(6)}° E
             </span>
           </div>
         </div>
       </div>
 
-      {/* Embedded Map Visual */}
-      <div className="mt-4 relative h-48 w-full rounded-2xl overflow-hidden border border-slate-800/80 bg-slate-950 shadow-inner group">
+      {/* Embedded Map */}
+      <div className="mt-4 relative h-44 w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
         <iframe
           title={`Map location for ${binId}`}
           width="100%"
@@ -106,11 +105,11 @@ export default function MapWidget({ latitude, longitude, binId }: MapWidgetProps
           marginHeight={0}
           marginWidth={0}
           src={osmEmbedUrl}
-          className="filter contrast-[0.95] brightness-[0.9] invert-[0.9] hue-rotate-[185deg] w-full h-full opacity-90 transition-opacity group-hover:opacity-100"
+          className="w-full h-full"
         />
-        <div className="absolute bottom-2 left-2 z-10 px-2.5 py-1 rounded-md bg-slate-950/90 backdrop-blur-sm border border-slate-800 text-[10px] font-medium text-slate-400 flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          Live GPS Position
+        <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded-md bg-white/95 backdrop-blur-sm border border-slate-200 text-[10px] font-medium text-slate-700 shadow-sm flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          Current Device Position
         </div>
       </div>
     </div>

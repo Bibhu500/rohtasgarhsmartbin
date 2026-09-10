@@ -11,7 +11,7 @@ import { BinReading, TiltStatus, LidStatus, WifiStatus } from "@/types/bin";
 
 /**
  * Extensible API Key verification hook.
- * To enable authentication, set BIN_API_KEY in .env.local and check it here.
+ * To enable authentication, set BIN_API_KEY in .env and check it here.
  */
 function verifyApiKey(request: NextRequest): { valid: boolean; error?: string } {
   const expectedKey = process.env.BIN_API_KEY;
@@ -44,69 +44,60 @@ function parseAndValidatePayload(body: any): {
     return { valid: false, error: "Invalid JSON payload" };
   }
 
-  // 1. bin_id (Required)
-  const bin_id = String(body.bin_id || "").trim();
+  // 1. bin_id (Required string)
+  const bin_id = typeof body.bin_id === "string" ? body.bin_id.trim() : String(body.bin_id || "").trim();
   if (!bin_id) {
-    return { valid: false, error: "Field 'bin_id' is required (e.g. 'BIN-001')" };
+    return { valid: false, error: "Field 'bin_id' is required and must be a non-empty string (e.g. 'AKR-BIN-001')" };
   }
 
-  // 2. fill (0-100)
-  let fill = Number(body.fill);
-  if (isNaN(fill)) fill = 0;
-  fill = Math.min(100, Math.max(0, Math.round(fill * 10) / 10));
-
-  // 3. moisture (0-100)
-  let moisture = Number(body.moisture);
-  if (isNaN(moisture)) moisture = 0;
-  moisture = Math.min(100, Math.max(0, Math.round(moisture * 10) / 10));
-
-  // 4. temperature (Celsius)
-  let temperature = Number(body.temperature);
-  if (isNaN(temperature)) temperature = 25.0;
-  temperature = Math.round(temperature * 10) / 10;
-
-  // 5. tilt ("NORMAL" | "TILTED")
-  let tilt: TiltStatus = "NORMAL";
-  if (
-    body.tilt &&
-    String(body.tilt).toUpperCase() === "TILTED"
-  ) {
-    tilt = "TILTED";
+  // 2. fill (Required number: 0 - 100)
+  if (body.fill === undefined || body.fill === null || typeof body.fill !== "number" || isNaN(body.fill) || body.fill < 0 || body.fill > 100) {
+    return { valid: false, error: "Field 'fill' must be a valid number between 0 and 100" };
   }
+  const fill = Math.round(body.fill * 10) / 10;
 
-  // 6. lid ("OPEN" | "CLOSED")
-  let lid: LidStatus = "CLOSED";
-  if (
-    body.lid &&
-    String(body.lid).toUpperCase() === "OPEN"
-  ) {
-    lid = "OPEN";
+  // 3. moisture (Required number: 0 - 100)
+  if (body.moisture === undefined || body.moisture === null || typeof body.moisture !== "number" || isNaN(body.moisture) || body.moisture < 0 || body.moisture > 100) {
+    return { valid: false, error: "Field 'moisture' must be a valid number between 0 and 100" };
   }
+  const moisture = Math.round(body.moisture * 10) / 10;
 
-  // 7. wifi ("ONLINE" | "OFFLINE")
-  let wifi: WifiStatus = "ONLINE";
-  if (
-    body.wifi &&
-    String(body.wifi).toUpperCase() === "OFFLINE"
-  ) {
-    wifi = "OFFLINE";
+  // 4. temperature (Required number)
+  if (body.temperature === undefined || body.temperature === null || typeof body.temperature !== "number" || isNaN(body.temperature)) {
+    return { valid: false, error: "Field 'temperature' must be a valid number in Celsius" };
   }
+  const temperature = Math.round(body.temperature * 10) / 10;
 
-  // 8. latitude & longitude
+  // 5. tilt (Strict enum: "NORMAL" | "TILTED")
+  const rawTilt = String(body.tilt || "").trim().toUpperCase();
+  if (rawTilt !== "NORMAL" && rawTilt !== "TILTED") {
+    return { valid: false, error: "Field 'tilt' must be strictly 'NORMAL' or 'TILTED'" };
+  }
+  const tilt = rawTilt as TiltStatus;
+
+  // 6. lid (Strict enum: "OPEN" | "CLOSED")
+  const rawLid = String(body.lid || "").trim().toUpperCase();
+  if (rawLid !== "OPEN" && rawLid !== "CLOSED") {
+    return { valid: false, error: "Field 'lid' must be strictly 'OPEN' or 'CLOSED'" };
+  }
+  const lid = rawLid as LidStatus;
+
+  // 7. wifi (Strict enum: "ONLINE" | "OFFLINE")
+  const rawWifi = String(body.wifi || "").trim().toUpperCase();
+  if (rawWifi !== "ONLINE" && rawWifi !== "OFFLINE") {
+    return { valid: false, error: "Field 'wifi' must be strictly 'ONLINE' or 'OFFLINE'" };
+  }
+  const wifi = rawWifi as WifiStatus;
+
+  // 8. latitude & longitude (Numbers)
   let latitude = Number(body.latitude);
-  if (isNaN(latitude)) latitude = 28.6139; // default fallback (New Delhi)
+  if (isNaN(latitude)) latitude = 28.6139;
 
   let longitude = Number(body.longitude);
   if (isNaN(longitude)) longitude = 77.2090;
 
-  // 9. createdAt (server-generated or ISO string from ESP32 if provided)
-  let createdAt: Date = new Date();
-  if (body.createdAt) {
-    const parsedDate = new Date(body.createdAt);
-    if (!isNaN(parsedDate.getTime())) {
-      createdAt = parsedDate;
-    }
-  }
+  // 9. createdAt: auto-set to current server timestamp
+  const createdAt = new Date();
 
   return {
     valid: true,
@@ -220,7 +211,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: true,
-          message: "Saved to local memory (Add MONGODB_URI in .env.local for MongoDB Atlas persistence)",
+          message: "Saved to local memory (Add MONGODB_URI in .env for MongoDB Atlas persistence)",
           data: savedMock,
           isMockData: true,
         },
@@ -257,11 +248,13 @@ export async function GET(request: NextRequest) {
       try {
         const collection = await getBinReadingsCollection();
 
-        // Find available bin_ids for filter dropdown
+        // Find available bin_ids for filter dropdown, ensuring standard 4 bins exist
         const distinctBins = await collection.distinct("bin_id");
-        const binsList = Array.isArray(distinctBins) && distinctBins.length > 0
-          ? distinctBins.map(String)
-          : [binIdParam || "BIN-001"];
+        const defaultFourBins = ["BIN-001", "BIN-002", "BIN-003", "BIN-004"];
+        const combinedBins = Array.from(
+          new Set([...defaultFourBins, ...(Array.isArray(distinctBins) ? distinctBins.map(String) : [])])
+        );
+        const binsList = combinedBins;
 
         // Query filter
         const targetBinId = binIdParam || (binsList[0] ?? "BIN-001");
@@ -370,6 +363,6 @@ function getFallbackResponse(
     isMockData: true,
     warning: dbWarning
       ? `MongoDB connection issue: ${dbWarning}. Displaying in-memory data.`
-      : "MONGODB_URI not configured in .env.local. Displaying preview data.",
+      : "MONGODB_URI not configured in .env. Displaying preview data.",
   });
 }

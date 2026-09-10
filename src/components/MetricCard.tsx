@@ -24,35 +24,31 @@ export default function MetricCard({
   badgeText,
   extra,
 }: MetricCardProps) {
-  // Status color styles
+  // Clean, standard light theme status styles
   const statusStyles = {
     ok: {
-      border: "border-emerald-500/30 hover:border-emerald-500/60",
-      glow: "from-emerald-500/10 via-transparent to-transparent",
-      iconBg: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
-      badge: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-      valueColor: "text-white",
+      border: "border-slate-200 hover:border-emerald-300",
+      iconBg: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      badge: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      valueColor: "text-slate-900",
     },
     warning: {
-      border: "border-amber-500/40 hover:border-amber-500/70",
-      glow: "from-amber-500/15 via-transparent to-transparent",
-      iconBg: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
-      badge: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-      valueColor: "text-amber-200",
+      border: "border-amber-200 hover:border-amber-300",
+      iconBg: "bg-amber-50 text-amber-700 border-amber-200",
+      badge: "bg-amber-50 text-amber-700 border-amber-200",
+      valueColor: "text-amber-900",
     },
     danger: {
-      border: "border-rose-500/50 hover:border-rose-500/80 animate-pulse-glow",
-      glow: "from-rose-500/20 via-transparent to-transparent",
-      iconBg: "bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40",
-      badge: "bg-rose-500/20 text-rose-300 border-rose-500/40",
-      valueColor: "text-rose-200",
+      border: "border-rose-300 hover:border-rose-400 ring-1 ring-rose-200",
+      iconBg: "bg-rose-50 text-rose-700 border-rose-200",
+      badge: "bg-rose-50 text-rose-700 border-rose-200 font-bold",
+      valueColor: "text-rose-900",
     },
     neutral: {
-      border: "border-slate-800 hover:border-slate-700",
-      glow: "from-slate-800/20 via-transparent to-transparent",
-      iconBg: "bg-slate-800 text-slate-300 ring-1 ring-slate-700",
-      badge: "bg-slate-800 text-slate-400 border-slate-700",
-      valueColor: "text-slate-100",
+      border: "border-slate-200 hover:border-slate-300",
+      iconBg: "bg-slate-100 text-slate-600 border-slate-200",
+      badge: "bg-slate-100 text-slate-600 border-slate-200",
+      valueColor: "text-slate-900",
     },
   };
 
@@ -60,49 +56,44 @@ export default function MetricCard({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl bg-slate-900/80 backdrop-blur-md p-5 border transition-all duration-300 shadow-lg hover:shadow-xl ${style.border}`}
+      className={`relative overflow-hidden rounded-2xl bg-white p-4 sm:p-5 border transition-all duration-200 shadow-sm hover:shadow ${style.border}`}
     >
-      {/* Background soft ambient gradient */}
-      <div
-        className={`absolute inset-0 bg-gradient-to-br ${style.glow} pointer-events-none opacity-60`}
-      />
-
-      <div className="relative z-10 flex items-start justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
+      <div className="flex items-start justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           {title}
         </span>
-        <div className={`p-2.5 rounded-xl ${style.iconBg} transition-transform duration-200`}>
-          <Icon className="w-5 h-5" />
+        <div className={`p-2 rounded-xl border ${style.iconBg} transition-transform`}>
+          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
       </div>
 
-      <div className="relative z-10 mt-3 flex items-baseline gap-2">
-        <span className={`text-3xl font-extrabold tracking-tight ${style.valueColor}`}>
+      <div className="mt-2.5 flex items-baseline gap-1.5">
+        <span className={`text-2xl sm:text-3xl font-bold tracking-tight ${style.valueColor}`}>
           {value}
         </span>
         {unit && (
-          <span className="text-sm font-semibold text-slate-400">
+          <span className="text-xs sm:text-sm font-semibold text-slate-500">
             {unit}
           </span>
         )}
       </div>
 
-      <div className="relative z-10 mt-3 flex items-center justify-between">
+      <div className="mt-2.5 flex items-center justify-between gap-1">
         {subtitle && (
-          <p className="text-xs text-slate-400 truncate max-w-[170px]">
+          <p className="text-[11px] sm:text-xs text-slate-500 truncate max-w-[150px]">
             {subtitle}
           </p>
         )}
         {badgeText && (
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide border ${style.badge}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold tracking-wide border ${style.badge}`}
           >
             {badgeText}
           </span>
         )}
       </div>
 
-      {extra && <div className="relative z-10 mt-3">{extra}</div>}
+      {extra && <div className="mt-2.5">{extra}</div>}
     </div>
   );
 }
