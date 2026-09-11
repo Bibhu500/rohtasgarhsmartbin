@@ -18,33 +18,30 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { BinReading, BinApiResponse } from "@/types/bin";
+import {
+  ALL_100_BINS,
+  generateInitial100Readings,
+  getBinCategory,
+  BinInfo,
+} from "@/lib/binsData";
 import MetricCard from "@/components/MetricCard";
 import FillLevelBar from "@/components/FillLevelBar";
 import MapWidget from "@/components/MapWidget";
 import HistoryLog from "@/components/HistoryLog";
 import SimulatorModal from "@/components/SimulatorModal";
 import LoginForm from "@/components/LoginForm";
-
-interface BinTab {
-  id: string;
-  name: string;
-  location: string;
-}
-
-const DUSTBINS: BinTab[] = [
-  { id: "BIN-001", name: "Dustbin 1", location: "Main Campus Gate" },
-  { id: "BIN-002", name: "Dustbin 2", location: "Central Cafeteria" },
-  { id: "BIN-003", name: "Dustbin 3", location: "Academic Block B" },
-  { id: "BIN-004", name: "Dustbin 4", location: "East Parking Bay" },
-];
+import BinsCategoryOverview from "@/components/BinsCategoryOverview";
 
 export default function SmartDustbinApp() {
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [currentUser, setCurrentUser] = useState<string>("admin");
 
-  // Dashboard state (Dustbin 1 active by default)
+  // Active Dustbin state (Dustbin 1 active by default)
   const [activeBinId, setActiveBinId] = useState<string>("BIN-001");
+  const [readingsMap, setReadingsMap] = useState<Record<string, BinReading>>(() =>
+    generateInitial100Readings()
+  );
   const [latestReading, setLatestReading] = useState<BinReading | null>(null);
   const [history, setHistory] = useState<BinReading[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -84,7 +81,7 @@ export default function SmartDustbinApp() {
     }
   };
 
-  // Fetch telemetry for currently selected dustbin
+  // Fetch telemetry for currently selected dustbin + all 100 bins summary
   const fetchBinTelemetry = useCallback(
     async (isManual = false) => {
       if (isManual) setRefreshing(true);
@@ -99,8 +96,22 @@ export default function SmartDustbinApp() {
 
         const data: BinApiResponse = await res.json();
         if (data.success) {
-          if (data.latest) setLatestReading(data.latest);
-          if (data.history) setHistory(data.history);
+          if (data.latest) {
+            setLatestReading(data.latest);
+            setReadingsMap((prev) => ({
+              ...prev,
+              [data.latest!.bin_id]: data.latest!,
+            }));
+          }
+          if (data.history) {
+            setHistory(data.history);
+          }
+          if (data.allLatest) {
+            setReadingsMap((prev) => ({
+              ...prev,
+              ...data.allLatest,
+            }));
+          }
           setCountdown(5);
         } else {
           setError(data.message || "Failed to retrieve telemetry");
@@ -115,7 +126,7 @@ export default function SmartDustbinApp() {
     [activeBinId]
   );
 
-  // Re-fetch whenever selected tab changes
+  // Re-fetch whenever selected tab / bin changes
   useEffect(() => {
     if (isAuthenticated) {
       setLoading(true);
@@ -170,12 +181,14 @@ export default function SmartDustbinApp() {
     return <LoginForm onSuccess={() => setIsAuthenticated(true)} />;
   }
 
-  // Active Dustbin Tab Metadata
-  const currentBin = DUSTBINS.find((b) => b.id === activeBinId) || DUSTBINS[0];
+  // Active Dustbin Metadata
+  const currentBin =
+    ALL_100_BINS.find((b) => b.id === activeBinId) || ALL_100_BINS[0];
+  const currentCategory = getBinCategory(latestReading?.fill ?? 0);
 
   const isHighTemp = (latestReading?.temperature ?? 0) > 45;
   const isTilted = latestReading?.tilt === "TILTED";
-  const isFull = (latestReading?.fill ?? 0) >= 80;
+  const isFull = (latestReading?.fill ?? 0) > 80;
   const isLidOpen = latestReading?.lid === "OPEN";
   const isWifiOffline = latestReading?.wifi === "OFFLINE";
 
@@ -196,11 +209,11 @@ export default function SmartDustbinApp() {
                 </span>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                  Live
+                  100 Bins Live
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block">
-                ESP32 IoT Municipal Sanitation
+                Rohtasgarh Municipal Waste &amp; IoT Telemetry Portal
               </p>
             </div>
           </div>
@@ -222,7 +235,9 @@ export default function SmartDustbinApp() {
               className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
               title="Refresh telemetry"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-emerald-600" : ""}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${refreshing ? "animate-spin text-emerald-600" : ""}`}
+              />
             </button>
 
             {/* ESP32 Simulator trigger */}
@@ -250,57 +265,6 @@ export default function SmartDustbinApp() {
         </div>
       </header>
 
-      {/* Dustbin Selection Tabs (Dustbin 1, 2, 3, 4) */}
-      <div className="bg-white border-b border-slate-200 sticky top-16 z-20 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center overflow-x-auto no-scrollbar gap-2 py-2.5">
-            {DUSTBINS.map((bin, index) => {
-              const isActive = activeBinId === bin.id;
-              return (
-                <button
-                  key={bin.id}
-                  onClick={() => setActiveBinId(bin.id)}
-                  className={`shrink-0 flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
-                    isActive
-                      ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                      : "bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200/90"
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black ${
-                      isActive ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
-                    }`}
-                  >
-                    {index + 1}
-                  </div>
-                  <div className="text-left">
-                    <span className="block leading-tight">{bin.name}</span>
-                    <span
-                      className={`block text-[10px] font-normal leading-tight ${
-                        isActive ? "text-emerald-100" : "text-slate-400"
-                      }`}
-                    >
-                      {bin.location}
-                    </span>
-                  </div>
-                  {index === 0 && (
-                    <span
-                      className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold ${
-                        isActive
-                          ? "bg-emerald-700 text-white"
-                          : "bg-emerald-100 text-emerald-800"
-                      }`}
-                    >
-                      Active ESP32
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Error Alert */}
@@ -319,12 +283,25 @@ export default function SmartDustbinApp() {
           </div>
         )}
 
-        {/* Tab Header Sub-bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* 1. 100 DUSTBINS CATEGORY OVERVIEW (Full, Medium, Low, Empty) */}
+        <BinsCategoryOverview
+          allBins={ALL_100_BINS}
+          readingsMap={readingsMap}
+          selectedBinId={activeBinId}
+          onSelectBin={(binId) => setActiveBinId(binId)}
+        />
+
+        {/* Active Bin Details Banner */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
           <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span className="font-semibold text-slate-900">{currentBin.name}</span>
+            <span className="font-bold text-slate-900 text-sm">{currentBin.name}</span>
             <span className="text-slate-300">•</span>
-            <span className="text-slate-500 font-mono">{currentBin.id}</span>
+            <span className="text-slate-500 font-mono font-semibold">{currentBin.id}</span>
+            {currentBin.isRealDevice && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                LIVE ESP32
+              </span>
+            )}
             <span className="text-slate-300">•</span>
             <span className="flex items-center gap-1 text-slate-500">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -332,16 +309,23 @@ export default function SmartDustbinApp() {
             </span>
           </div>
 
-          <div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border ${currentCategory.bgLight} ${currentCategory.badgeText} ${currentCategory.borderColor}`}
+            >
+              <span className={`w-2 h-2 rounded-full ${currentCategory.dotColor}`} />
+              Tier: {currentCategory.category} ({currentCategory.rangeLabel})
+            </span>
+
             {isFull || isTilted || isHighTemp || isWifiOffline ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                Alert Triggered
+                Alert
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                Normal Condition
+                Normal
               </span>
             )}
           </div>
@@ -360,13 +344,13 @@ export default function SmartDustbinApp() {
           </div>
         ) : (
           <>
-            {/* 1. Hero Fill Level Bar */}
+            {/* 2. Hero Fill Level Bar with 4 Color-Coded Categories */}
             <FillLevelBar
               fill={latestReading?.fill ?? 0}
               binName={currentBin.name}
             />
 
-            {/* 2. 5 IoT Telemetry Cards */}
+            {/* 3. 5 IoT Telemetry Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
               {/* Moisture */}
               <MetricCard
@@ -433,12 +417,12 @@ export default function SmartDustbinApp() {
               />
             </div>
 
-            {/* 3. Map & Device Details Section */}
+            {/* 4. Map & Device Details Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
                 <MapWidget
-                  latitude={latestReading?.latitude ?? 28.6139}
-                  longitude={latestReading?.longitude ?? 77.2090}
+                  latitude={latestReading?.latitude ?? currentBin.latitude}
+                  longitude={latestReading?.longitude ?? currentBin.longitude}
                   binId={currentBin.id}
                   binName={currentBin.name}
                 />
@@ -449,7 +433,7 @@ export default function SmartDustbinApp() {
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    Device Details
+                    Unit Details &amp; Category
                   </h3>
                   <div className="mt-4 space-y-2.5 text-xs">
                     <div className="flex justify-between py-1.5 border-b border-slate-100">
@@ -458,18 +442,26 @@ export default function SmartDustbinApp() {
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-slate-100">
                       <span className="text-slate-500">Hardware ID</span>
-                      <span className="font-mono text-slate-800">{currentBin.id}</span>
+                      <span className="font-mono font-semibold text-slate-800">{currentBin.id}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-500">Category Tier</span>
+                      <span className={`font-bold ${currentCategory.badgeText}`}>
+                        {currentCategory.category} ({currentCategory.rangeLabel})
+                      </span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-slate-100">
                       <span className="text-slate-500">Location Tag</span>
-                      <span className="text-slate-800">{currentBin.location}</span>
+                      <span className="text-slate-800 text-right max-w-[180px] truncate">{currentBin.location}</span>
                     </div>
                     <div className="flex justify-between py-1.5 border-b border-slate-100">
-                      <span className="text-slate-500">Telemetry Ingestion</span>
-                      <span className="font-mono text-emerald-700">REST POST /api/bin-data</span>
+                      <span className="text-slate-500">Device Type</span>
+                      <span className="font-semibold text-emerald-700">
+                        {currentBin.isRealDevice ? "Physical ESP32 IoT" : "Simulated Node"}
+                      </span>
                     </div>
                     <div className="flex justify-between py-1.5">
-                      <span className="text-slate-500">Pickup Urgency</span>
+                      <span className="text-slate-500">Pickup Priority</span>
                       <span
                         className={`font-bold ${
                           isFull
@@ -479,7 +471,7 @@ export default function SmartDustbinApp() {
                             : "text-emerald-700"
                         }`}
                       >
-                        {isFull ? "HIGH (Full)" : isTilted ? "CHECK (Tilted)" : "NORMAL"}
+                        {isFull ? "HIGH (Full >80%)" : isTilted ? "CHECK (Tilted)" : "NORMAL"}
                       </span>
                     </div>
                   </div>
@@ -487,7 +479,7 @@ export default function SmartDustbinApp() {
 
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
                   <span className="text-[11px] text-slate-400">
-                    Polling interval: 5 seconds
+                    Auto-polling: every 5s
                   </span>
                   <button
                     type="button"
@@ -500,7 +492,7 @@ export default function SmartDustbinApp() {
               </div>
             </div>
 
-            {/* 4. Recent Telemetry Table */}
+            {/* 5. Telemetry Log */}
             <HistoryLog
               history={history}
               binName={currentBin.name}
@@ -513,7 +505,7 @@ export default function SmartDustbinApp() {
       <footer className="border-t border-slate-200 bg-white py-4 mt-8 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>SmartDustbin IoT Portal • Logged in as <strong>{currentUser}</strong></span>
-          <span className="text-[11px] text-slate-400">Next.js 14+ • MongoDB Atlas • ESP32</span>
+          <span className="text-[11px] text-slate-400">100 Municipal Nodes • ESP32 • Next.js 14+</span>
         </div>
       </footer>
 

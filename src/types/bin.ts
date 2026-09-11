@@ -24,4 +24,5 @@ export interface BinApiResponse {
   bins?: string[];
   totalReadings?: number;
   isMockData?: boolean;
+  allLatest?: Record<string, BinReading>;
 }

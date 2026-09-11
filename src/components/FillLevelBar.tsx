@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Trash2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { Trash2, AlertTriangle, CheckCircle2, Info, ArrowDownCircle } from "lucide-react";
+import { getBinCategory } from "@/lib/binsData";
 
 interface FillLevelBarProps {
   fill: number; // 0 - 100
@@ -10,56 +11,35 @@ interface FillLevelBarProps {
 
 export default function FillLevelBar({ fill, binName = "Dustbin 1" }: FillLevelBarProps) {
   const clampedFill = Math.min(100, Math.max(0, Math.round(fill)));
+  const categoryInfo = getBinCategory(clampedFill);
 
-  // Status mapping
-  let statusBadge: {
-    label: "FULL" | "NORMAL" | "EMPTY";
-    colorClass: string;
-    barColor: string;
-    icon: typeof AlertTriangle;
-    description: string;
-  };
+  // Status mapping matching user's exact specification
+  let statusIcon = CheckCircle2;
+  let description = "Optimal capacity available";
 
-  if (clampedFill >= 80) {
-    statusBadge = {
-      label: "FULL",
-      colorClass: "bg-rose-50 text-rose-700 border-rose-200",
-      barColor: "bg-rose-600",
-      icon: AlertTriangle,
-      description: "Immediate waste collection required",
-    };
-  } else if (clampedFill <= 20) {
-    statusBadge = {
-      label: "EMPTY",
-      colorClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      barColor: "bg-emerald-500",
-      icon: CheckCircle2,
-      description: "Optimal capacity available",
-    };
+  if (categoryInfo.category === "Full") {
+    statusIcon = AlertTriangle;
+    description = "Immediate municipal pickup required (>80%)";
+  } else if (categoryInfo.category === "Medium") {
+    statusIcon = Info;
+    description = "Normal waste accumulation (>30–80%)";
+  } else if (categoryInfo.category === "Low") {
+    statusIcon = ArrowDownCircle;
+    description = "Low waste level (>10–30%)";
   } else {
-    statusBadge = {
-      label: "NORMAL",
-      colorClass: "bg-sky-50 text-sky-700 border-sky-200",
-      barColor: "bg-sky-600",
-      icon: Info,
-      description: "Moderate waste fill level",
-    };
+    // Empty
+    statusIcon = CheckCircle2;
+    description = "Dustbin is clean and ready (0–10%)";
   }
 
-  const StatusIcon = statusBadge.icon;
+  const StatusIcon = statusIcon;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div
-            className={`p-3 rounded-xl border ${
-              clampedFill >= 80
-                ? "bg-rose-50 border-rose-200 text-rose-600"
-                : clampedFill <= 20
-                ? "bg-emerald-50 border-emerald-200 text-emerald-600"
-                : "bg-sky-50 border-sky-200 text-sky-600"
-            }`}
+            className={`p-3 rounded-xl border ${categoryInfo.bgLight} ${categoryInfo.borderColor} ${categoryInfo.badgeText}`}
           >
             <Trash2 className="w-6 h-6" />
           </div>
@@ -69,20 +49,22 @@ export default function FillLevelBar({ fill, binName = "Dustbin 1" }: FillLevelB
                 {binName} Fill Level
               </h2>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-200 bg-slate-50 text-slate-600">
-                Live Sensor
+                Live Telemetry
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">{statusBadge.description}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{description}</p>
           </div>
         </div>
 
         {/* Badge and Percentage */}
         <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
           <div
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${statusBadge.colorClass}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${categoryInfo.bgLight} ${categoryInfo.badgeText} ${categoryInfo.borderColor}`}
           >
             <StatusIcon className="w-3.5 h-3.5" />
-            <span>{statusBadge.label}</span>
+            <span>
+              {categoryInfo.category} ({categoryInfo.rangeLabel})
+            </span>
           </div>
 
           <div className="text-right">
@@ -100,26 +82,38 @@ export default function FillLevelBar({ fill, binName = "Dustbin 1" }: FillLevelB
       <div className="mt-5">
         <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/60">
           <div
-            className={`h-full rounded-full transition-all duration-500 ease-out ${statusBadge.barColor}`}
+            className={`h-full rounded-full transition-all duration-500 ease-out ${categoryInfo.barColor}`}
             style={{ width: `${clampedFill}%` }}
           />
         </div>
 
-        {/* Level Scale */}
-        <div className="mt-2 flex justify-between text-[11px] font-medium text-slate-400 px-0.5">
-          <span>0% (Empty)</span>
-          <span>50%</span>
-          <span>80% (Alert)</span>
-          <span>100% (Full)</span>
+        {/* Level Scale with 4 exact thresholds */}
+        <div className="mt-2.5 grid grid-cols-4 text-center text-[10px] sm:text-[11px] font-semibold text-slate-500 px-0.5">
+          <span className="text-emerald-700 flex items-center justify-start gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            Empty (0–10%)
+          </span>
+          <span className="text-sky-700 flex items-center justify-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-sky-500 inline-block" />
+            Low (&gt;10–30%)
+          </span>
+          <span className="text-amber-700 flex items-center justify-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+            Medium (&gt;30–80%)
+          </span>
+          <span className="text-rose-700 flex items-center justify-end gap-1">
+            <span className="w-2 h-2 rounded-full bg-rose-600 inline-block" />
+            Full (&gt;80–100%)
+          </span>
         </div>
       </div>
 
       {/* Critical Alert Banner if Full */}
-      {clampedFill >= 80 && (
+      {clampedFill > 80 && (
         <div className="mt-4 flex items-center gap-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium">
           <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
           <div>
-            <span className="font-bold">Sanitation Alert:</span> Bin is at {clampedFill}% capacity. Please schedule municipal waste collection.
+            <span className="font-bold">Sanitation Alert:</span> Bin is at {clampedFill}% capacity (Full category &gt;80%). Please dispatch collection truck.
           </div>
         </div>
       )}

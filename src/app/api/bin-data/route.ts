@@ -6,7 +6,9 @@ import {
 import {
   getMockReadings,
   addMockReading,
+  getLatest100Map,
 } from "@/lib/mockStore";
+import { ALL_100_BINS } from "@/lib/binsData";
 import { BinReading, TiltStatus, LidStatus, WifiStatus } from "@/types/bin";
 
 /**
@@ -248,11 +250,11 @@ export async function GET(request: NextRequest) {
       try {
         const collection = await getBinReadingsCollection();
 
-        // Find available bin_ids for filter dropdown, ensuring standard 4 bins exist
+        // Find available bin_ids, ensuring all 100 bins are listed
         const distinctBins = await collection.distinct("bin_id");
-        const defaultFourBins = ["BIN-001", "BIN-002", "BIN-003", "BIN-004"];
+        const default100Bins = ALL_100_BINS.map((b) => b.id);
         const combinedBins = Array.from(
-          new Set([...defaultFourBins, ...(Array.isArray(distinctBins) ? distinctBins.map(String) : [])])
+          new Set([...default100Bins, ...(Array.isArray(distinctBins) ? distinctBins.map(String) : [])])
         );
         const binsList = combinedBins;
 
@@ -313,6 +315,7 @@ export async function GET(request: NextRequest) {
           latest: formattedLatest,
           history: historyDocs,
           bins: binsList,
+          allLatest: getLatest100Map(),
           isMockData: false,
         });
       } catch (dbError: any) {
@@ -339,9 +342,9 @@ function getFallbackResponse(
   limit: number,
   dbWarning?: string
 ) {
-  const allReadings = getMockReadings();
-  const distinctBins = Array.from(new Set(allReadings.map((r) => r.bin_id)));
-  if (distinctBins.length === 0) distinctBins.push("BIN-001");
+  const allReadings: BinReading[] = getMockReadings();
+  const all100Bins = ALL_100_BINS.map((b) => b.id);
+  const distinctBins = Array.from(new Set([...all100Bins, ...allReadings.map((r: BinReading) => r.bin_id)]));
 
   const targetBinId = binIdParam || distinctBins[0];
   const filtered = allReadings.filter(
@@ -352,7 +355,7 @@ function getFallbackResponse(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  const latest = sorted.length > 0 ? sorted[0] : null;
+  const latest = sorted.length > 0 ? sorted[0] : (getLatest100Map()[targetBinId] || null);
   const history = includeHistory ? sorted.slice(0, limit) : [];
 
   return NextResponse.json({
@@ -360,6 +363,7 @@ function getFallbackResponse(
     latest,
     history,
     bins: distinctBins,
+    allLatest: getLatest100Map(),
     isMockData: true,
     warning: dbWarning
       ? `MongoDB connection issue: ${dbWarning}. Displaying in-memory data.`
