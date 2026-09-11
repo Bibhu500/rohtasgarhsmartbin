@@ -171,6 +171,9 @@ export async function POST(request: NextRequest) {
             : newReading.createdAt,
         };
 
+        // Also update cached map so allLatest is immediately updated
+        addMockReading(savedDoc);
+
         return NextResponse.json(
           {
             success: true,
@@ -258,11 +261,14 @@ export async function GET(request: NextRequest) {
         );
         const binsList = combinedBins;
 
-        // Query filter
+        // Query filter: support both BIN-001 and AKR-BIN-001 interchangeably for Dustbin 1
         const targetBinId = binIdParam || (binsList[0] ?? "BIN-001");
-        const query = targetBinId ? { bin_id: targetBinId } : {};
+        const query =
+          targetBinId === "BIN-001" || targetBinId === "AKR-BIN-001"
+            ? { bin_id: { $in: ["BIN-001", "AKR-BIN-001"] } }
+            : { bin_id: targetBinId };
 
-        // Fetch latest reading
+        // Fetch latest reading from MongoDB Atlas
         const latestDoc = await collection.findOne(query, {
           sort: { createdAt: -1 },
         });
@@ -310,12 +316,52 @@ export async function GET(request: NextRequest) {
             }
           : null;
 
+        // Merge real readings from MongoDB Atlas over simulated data
+        const liveAllLatestMap = { ...getLatest100Map() };
+        if (formattedLatest) {
+          const liveKey =
+            formattedLatest.bin_id === "AKR-BIN-001" ? "BIN-001" : formattedLatest.bin_id;
+          liveAllLatestMap[liveKey] = {
+            ...formattedLatest,
+            bin_id: liveKey,
+          };
+        }
+
+        try {
+          const allMongoLatest = await collection
+            .find({})
+            .sort({ createdAt: -1 })
+            .limit(100)
+            .toArray();
+
+          for (const doc of allMongoLatest) {
+            const key = doc.bin_id === "AKR-BIN-001" ? "BIN-001" : doc.bin_id;
+            if (!liveAllLatestMap[key] || new Date(doc.createdAt) >= new Date(liveAllLatestMap[key].createdAt)) {
+              liveAllLatestMap[key] = {
+                _id: doc._id?.toString(),
+                bin_id: key,
+                fill: doc.fill,
+                moisture: doc.moisture,
+                temperature: doc.temperature,
+                tilt: doc.tilt,
+                lid: doc.lid,
+                wifi: doc.wifi,
+                latitude: doc.latitude,
+                longitude: doc.longitude,
+                createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : doc.createdAt,
+              };
+            }
+          }
+        } catch {
+          // ignore secondary query errors
+        }
+
         return NextResponse.json({
           success: true,
           latest: formattedLatest,
           history: historyDocs,
           bins: binsList,
-          allLatest: getLatest100Map(),
+          allLatest: liveAllLatestMap,
           isMockData: false,
         });
       } catch (dbError: any) {

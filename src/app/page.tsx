@@ -96,21 +96,24 @@ export default function SmartDustbinApp() {
 
         const data: BinApiResponse = await res.json();
         if (data.success) {
-          if (data.latest) {
-            setLatestReading(data.latest);
-            setReadingsMap((prev) => ({
-              ...prev,
-              [data.latest!.bin_id]: data.latest!,
-            }));
-          }
-          if (data.history) {
-            setHistory(data.history);
-          }
           if (data.allLatest) {
             setReadingsMap((prev) => ({
               ...prev,
               ...data.allLatest,
             }));
+          }
+          if (data.latest) {
+            setLatestReading(data.latest);
+            setReadingsMap((prev) => ({
+              ...prev,
+              [data.latest!.bin_id]: data.latest!,
+              ...(data.latest!.bin_id === "AKR-BIN-001" || data.latest!.bin_id === "BIN-001"
+                ? { "BIN-001": data.latest! }
+                : {}),
+            }));
+          }
+          if (data.history) {
+            setHistory(data.history);
           }
           setCountdown(5);
         } else {
